@@ -1,0 +1,474 @@
+				 AreaWatch v1.0
+
+					   by Pierre Raynaud-Richard.
+
+
+
+ 
+The idea behind AreaWatch :
+
+  Caring about memory usage is an important task. That could mean multiple
+things : the most common mistake will be leaks in heaps (like objects or
+buffers that you allocate but you never free); but depending what you do,
+you could be leaking areas, threads, or just even fragmenting your heap too
+much. In a even more general way, it's good to know how much memory an
+application is really using when you launch it and when you use it.
+
+  Under the BeOS, the real memory footprint (as seen by the MMU) is very
+acurately described by listarea (the command line tool that you can use
+under the shell). That will give you a very complete but also very complex
+and very confusing description of the current memory allocation. So I don't
+know for you, but I usualy ended up with a Terminal opened just for that,
+calling it again and again, using grep to try to extract just the right
+information I wanted, and some other tool to convert from hexadecimal to
+decimal... not really convenient.
+
+  So the main idea with AreaWatch is to put a graphic interface on top
+of listarea, and also add some nifty options that will do some processing
+automatically for you.
+
+
+
+First look at AreaWatch
+
+  Launch AreaWatch. A window (named AreaWatch) appears. From top to bottom,
+you will see 4 parts :
+
++ a thin horizontal button (with an up arrow in the middle). By clicking
+  on it, you can show/hide an extra panel at the top of the window. That's
+  the "command panel".
+
++ below that, There is another thin band called the "tab bar". It includes
+  from left to right :
+  - a tab labeled "Name" with a right arrow on its right.
+  - 3 tabs labeled "Phys", "Used" and "Swap", with either a "?" or a "."
+    on their right side. "Used" should be underlined.
+  - a right arrow.
+    
++ below that, most of the window is used by a scrollview, with four columns
+  of 15 lines. That's the "team list".
+
++ at the bottom of the window, you will find a thin horizontal button (with
+  an down arrow in the middle). By clicking on it, you can show/hide an
+  extra scrollview at the bottom of the window (empty at first). That's the
+  "area list".
+
+
+
+Using the "tab bar"
+
+  This bar controls what will be displayed in both the team list and the area
+list (the meaning of the columns in both list are always the same). The arrow
+on the right allows you to show either all the tabs or only selected tabs (to
+use less space). If you show all tabs, you will now see 8 tabs, labeled :
+"Name", "Phys", "Rsvd", "Used", "Swap", "Copy", "In" and "Out". 
+
++ The "Name" column shows either the team name or the area name. You can
+  switch between short names (15 chars) and long names (31 chars) by using
+  the arrow on the right end of the tab.
+
+  Those next four columns all show numbers in KB (always multiple of the
+page size, B_PAGE_SIZE, 4KB). For huge values, the format will change to
+xxx.yy and even xxxx.y, showing numbers in MB :
+
++ The "Phys" column shows the amount of physical memory currently used by
+  a team or a given area. (this is the exact value).
+
++ The "Rsvd" (Reserved) column shows the amount of address space reserved.
+  It should always be greater or equal to the values in the columns "Phys",
+  "Used" and "Swap". (this is the exact value). Some areas reserve more
+  address space than they will really commit, in case they need to grow
+  later. This is typicaly the case of the thread's stacks. This help
+  reducing address space fragmentation. 
+
++ The "Used" column will show the amount of memory in the area that has been
+  effectively used (the page were touched at least one) by the application.
+  This value is only an estimate, based on three source of information :
+  the physical memory usage ("Phys"), the current balance of page swapped
+  out ("In" compared to "Out") and the history of the application, as traced
+  by the regular update of the "current state", done roughly every 2 seconds.
+  Stopping the update will greatly reduce the accuracy of this value.
+
++ The "Swap" column will show the amount of memory reserved by the area in
+  the swap file. This value is only an estimate, accurate most of the time.
+  In some uncommon cases, the value can be underestimated.
+
+  The next three columns show numbers of pages (as defined by VM, 4KB each).
+For huge values, the display will change to xxx.yy or even xxxx.y and will
+be in millions of pages :
+
++ The "Copy" column will show how many "Copy on write" pages have been
+  effectively copied. This mechanism is used to avoid unnecessary duplication
+  of datas : an area cloned using the copy on write option will keep pointing
+  to the same pages than the original area as long as you don't try to modify
+  the datas it contains. As soon as you do that, the affected page will be
+  duplicated, and only the copy will be modified. This is used a lot by the
+  code segment loader. This value may be grossly overestimated in some case.
+
++ The "In" column will show how many pages have been paged in (from the swap
+  file to physical memory). This can grow larger than the count of page in
+  the area as the same pages count potentially be paged in and out multiple
+  times.
+
++ The "Out" column will show how many pages have been paged out (same thing).
+
++ The "Id" column will show either the team id or the area id. Some fake ids
+  are created by AreaWatch to index abstract representation of team or areas
+  which do not really exist in the system (see comments further).
+
+  The last seven tabs will display either a "X" or a "-" on the left side of
+the tab. Those are used to select which of those 8 tabs will be visibles in
+the normal view (when the arrow on the right is pointing right). You can
+select any number of tabs between 1 and 8 (you can't unselect the last one).
+
+  The 7 tabs from "Phys" to "Out" will display either a "?" or a ".". Those
+are used to select the display criteria for the team list and the area list.
+Only the items (team or area) which have a non NULL value for one of the
+selected ("?") criteria will be shown. If you don't select any criteria,
+both lists will be empty. Selected criteria are always applied, even if they
+belong to a tab that is not currently visible.
+
+  Finally, by clicking on the name of any of the last 8 tabs (all of them
+except name), you can select which sorting criteria will be used to sort the
+lists (the current selection is shown by an underline under its label). Once
+again, the sorting criteria can be applied on a tab that is not visible.
+
+
+
+Using the "team list"
+
+  Nothing extraordinary to be said about the "team list" (most of the controls
+were already described in the "tab bar"). I would just want to point out a few
+details :
+
++ The team of AreaWatch itself is not displayed. As AreaWatch is always busy
+  checking the properties of areas every 2 seconds, its heap is moving all the
+  time. When using AreaWatch in compare mode (see "using the command panel"),
+  that would introduce some unnecessary noise (as AreaWatch is not a normal
+  component of the system, it's only used for debug). As for debugging leaks
+  in AreaWatch, it's my responsability, not yours ;-)
+
++ Kernel related areas are split in 3 teams :
+  - the "kernel_team" team, team_id = 2, which usualy only contains the stack
+    of a few deamon threads.
+  - the "Kernel space" team, team_id = 1, which regroups most of the good
+    stuff.
+  - the "Loader cache" team, team_id = -1, which is not a real team, but just
+    an abstract representation of all the areas used by the loader cached
+    (normally, they're part of the Kernel space).
+
++ The shared libraries do not really belong to any specific team but, as their
+  name suggests it, they are shared among multiple teams. So I decided to
+  regroup them together in the "Shared Libraries" team, team_id = -2, another
+  fake team. For now, only the BeOS system shared libraries are recognized.
+  Application specific shared libraries will be included in the team of the
+  application using them.
+
+
+
+Using the "area list"
+
+  The "area list" is an optional panel, but in practice it's very convenient to
+keep it visible all the time. Once open, it will display the detail of all the
+areas included in the selected team (just click on a team in the "team list").
+The meaning of the column is the same than for the "team list". Beyond that, I
+would just like to point out a few specific details :
+
++ Names of code segments (ending by "_seg0" or "_seg1") are truncated at the
+  beginning when they are too long (which is not that long sadly). This is not
+  a problem with AreaWatch but just the real names of the areas. Those names
+  are automatically generated by the loader, which will never use more than 15
+  chars and always protect the end (to see the index of the segment). That's
+  weird sometime, but onec you know about it, it's not hard to guess what is
+  missing.
+
++ Many of those areas are stacks of threads. So their regular name would be
+  something starting by "Stacks of ". That's 10 characters used to display very
+  little information. AreaWatch improve the efficiency of the name display by
+  replacing "Stacks of " by a single "$". So for example, "$app_task" refers to
+  "Stacks of app_task".
+
++ Some areas in the "Kernel space" team are automatically filtered out as they
+  are representative of any real memory usage. For example, that's the case of
+  "physical ram" and the areas used to map the frame buffer of a graphic card.
+  
++ The system "Shared libraries" segment code areas are automatically identified
+  and rename to their full name (they are the only code segments avoiding the
+  truncation to 15 chars described before). The segment that are fully shared
+  are put in "Shared libraries"; the segment that need to be relocated (by
+  using copy on write) are put in each individual application. For example, on
+  my current build, libbe_seg0 is shared, 1020KB, and every application using
+  libbe gets a copy of libbe_seg1 that has to be rellocated, and costs 28KB).
+
++ The app_server client specific heaps ("rw_server_area" and "ro_server_area")
+  are put in the client application pool as they contained only client specific
+  datas.
+
++ Generic identification of cloned areas is not implemented yet, so in many
+  cases (like Media-Kit shared buffers, application defined shared buffers and
+  so on...) some areas will be counted multiple times (against the various
+  owner of their multiple clones). In most cases, they are easy to recognize...
+
++ Replicants for DeskBar are properly filtered out. Sadly, they are the only
+  ones. 
+
+
+
+Using the "command panel"
+
+  The "command panel" is an optional panel, but in practice it's so useful
+that you may keep it open all the time. Here is what you will find there,
+from the top to the bottom, left to right :
+
++ a non editable text display (showing "<<<< Current state >>>>" at first,
+  called the "Positive State". Immediately on the side, you will find two
+  scrollers button (both disabled at first).
+
++ on the right, you find a button "Stop".
+
++ on the right of the "Stop", if you open the panel in wide enough (for
+  example, use the expended mode of the "tab bar"), you will see a button
+  "Dump", with a button "AutoSave" just below.
+
++ below the "Positive State", there is static text showing "compared to" and
+  another text between parenthesis showing the current version number "(v1.0)".
+  Below that, you will find an editable text, called the "Negative State".
+  On the side, once again two scroller buttons (the buttom one being enabled).
+
++ On the right of the "Negative State", two buttons who both applied to the
+  current selection of the "Negative State", both disabled at first :
+  "Delete" and "Set Now".
+
+  Based on those settings, AreaWatch can essentially work in two modes :
+
++ Full description of a state : if the "Negative State" is set to blank (the
+  topmost setting available with the scrollers), AreaWatch will display
+  whatever the current "Positive State" is. This can be either "<<<< Current 
+  state >>>>", which represents a very recent state of the system, as recorded
+  every 2 seconds (roughly), or one of the memorized states. At first, there
+  is no memorized state, so "Positive State" scrollers offer only one option
+  (so they're disabled).
+
++ Comparison of two states : if the "Negative State is set to one of the
+  memorized states (if any), then AreaWatch will display the difference of
+  both state. The "Positive State" will be counted positively, the "Negative
+  State" will be counted negatively. If some teams or areas existed only in
+  the "Positive State", they will be displayed in blue. If they existed only
+  in the "Negative State", they will be displayed in red. If they existed in
+  both, they will appear in black.
+
+  Remember that only the elements whose values are not null, based on the
+selection criteria ("?"), will be displayed. And whatever mode you're using,
+the "Dump" button will save a snapshot of your complete expanded display
+into "/boot/AreaWatchSnapshots/****". Enabling the "AutoSave" mode (you can't
+disable it for now, soory I was lazy...) will save a state every 2 minutes,
+just like if you were pressing the "Dump" button. Each states will be saved
+under a different name (that's very useful if you want to track a leaks that
+happen only very slowly, but could make the whole machine unusable by running
+out of memory). In that case, you can let your machine turn all the night
+(using some script), and when you come back the next day, even if you have to
+reboot, you will still have the log of everything. Advanced options can be set
+using the SET_AUTO_DUMP message (see at the end of the ReadMe).
+
+  The final thing you need to know is how to create, name, reset and delete
+the memorized states :
+
++ Creating a new memorized state : to do that, use the bottom scroller of the
+  "Negative State" to go at the end of the list of currently memorized states.
+  The following text selection : "< Please, enter a name >" will appear in the
+  "Negative State" text field (which will get the focus). You are then ready
+  to enter a short name describing what you're going to record in the new
+  memorized state. The "Set Now" should now be enabled. Pressing it will copy
+  the current state in a new memorized state with the name you just peek.
+
++ Renaming a memorized state : at any time, you can change the name of a
+  memorized state by selecting it in the "Negative State" using the scrollers
+  and editing the name in the "Negative State" text field. That will modify
+  the name without changing the corresponding memorized state.
+
++ Reseting a memorized state : at any time, you can change the content of any
+  memorized state by selecting it in the "Negative State" using the scrollers
+  and pressing the "Set Now" button. The memorized state will keep the same
+  name but its state will be overwritten by the current state.
+
++ Deleting a memorized state : at any time, you can delete any of the memorized
+  state by selecting it in the "Negative State" using the scrollers and
+  pressing the "Delete" button. That will free some memory space and allow you
+  to keep the memorized state list short and usable.
+
+  As memorized states used a lot of memory, to avoid abusing the function,
+AreaWatch allows only 8 different memorized states at a the same time. If the
+8 states are define, AreaWatch will refuse to memorize new state. At that
+point, you need to delete some of the existing ones (or you can also rename and
+reset them. But deleting them will have the advantage to put the new states at
+the end of the list).
+
+  One last thing : by default, AreaWatch rescan the state of the system every 2
+seconds. That will use from 2 to 4% of your CPU time on a recent machine with a
+reasonnable workload, potentially for no avail (depending what you're trying to
+do). So you can disable the autoscan by using the "Stop" button. At that point,
+"<<<< Current state >>>>" will be replaced by "<<<< Frozen state >>>>". You can
+then use the "Start" button to restart the autoscan.
+
+
+
+A few practical examples
+
+  There is no better explanation than an example, so here a few interesting
+ways of using AreaWatch :
+
++ Direct and indirect footprint of an app launch : get ready to launch your
+  app. Memorized the current state (initial state). Set AreaWatch to compare
+  the current state to "initial state". There should be almost nothing visible
+  (moving windows may generate some small change in the size of the app_server
+  heap. The net_server maybe busy in the background... things like that).
+  Launch you app. After the launch is completed, you will notice two things :
+
+  - The direct footprint of your app (as recorded in its own team).
+  
+  - The indirect footprint of your app. That will usualy include :
+    * allocation of new thread's stacks in the app_server (the server side
+      threads serving your windows or offscreen bitmap accepting views),
+      extra heap allocation.
+    * new shared libraries, not used before, but required by your app.
+    * some small changes in Deskbar (as it most likely created a new entry
+      for your app).
+    * changes in various other servers, depending what services you're using
+      (buffers and threads in the media_addon_server, sockets thread's stacks
+      and new buffer in the net_server...)
+    * small changes in "Kernel space".
+    * many new entries (and perhaps some exit) in the loader cache, for every
+      new code segment loaded by or because of your app. Those shouldn't be
+      counted against your app as they are keep around only as long as free
+      physical memory is available.
+    * probably a few other changes (including the fact that your application
+      may be interacting with other app, for example adding a replicant in
+      DeskBar and so on...) 
+
++ Direct and indirect footprint of using an app : once the launch is complete,
+  create a new memorized state (After launch). Then start using your app.
+  By comparing the current state to "After launch", AreaWatch will show you the
+  incremental memory usage of your app. You may want to especially look at :
+ 
+  - increase when using things once.
+
+  - increase after using a same function many times (like 10 times or more).
+    Remember that AreaWatch can easily be automaticaly controled (see further
+    "Public messaging API");
+
+  - dynamic change when using the app (as far as the 2 seconds resolution can
+    see).
+
++ Taking a snapshot at temporary memory usage : launch a task that will only
+  execute itself for a few seconds. Save a memorized state during the
+  execution. Then you have all the time you want to study it in detail, even
+  after the death of the team.
+
++ Comparing mutiple snapshots : do the previous snapshot twice on two different
+  execution of the same thing. Comparing them will give you a good idea how
+  stabel the whole process is. 
+
+
+
+Identifying areas...
+
+  To help you understand what AreaWatch will show you, here is the identity of
+a few common areas and what they mean. Let's first look at the case of an
+common application (names YourApp in this case) :
+
++ heap : that's the main heap of the application, where all the malloc and new
+  are done. A very common problem here is to leak buffers or objects. In such
+  a case, the heap will grow unbounded as you use the application. Other tools
+  are available to investigate those problems more closely (leakchecker).
+
++ YourApp_seg0 : That's the main code segment of your app (the code that didn't
+  need to be relocated).
+
++ YourApp_seg1 : That's the small code segment of your app (the code that
+  required relocation).
+
++ lib####_seg1 (where #### is any among "be", "root" and so on...) : that's the
+  part of the shared libraries used by your app that needs to be relocated for
+  each client.
+
++ rw_server_area : that's the main area used to shared datas between your app
+  and the application server. That's where all the BBitmap objects are stored.
+  Leaking BBitmap is sadly common and very harmful (as memory can go away
+  really fast).
+
++ ro_server_area : that's the small area used to shared datas between your app
+  and the application server. The first was accessible read and write, this
+  one is read-only and so is used for other datas (that require memory
+  protection)
+
++ $LooperName : That's the stack of a looper's thread (usualy a window).
+
+
+  Let's have a quick look at some other common areas, directly related to your
+application, but in other component of the system. First, the app_server :
+
++ $off_wind_task : You created a BBitmap that accepts BViews. That creates a
+  thread on the server side. That's its stack.
+
++ $w:WindowName : That the stack of the server side thread handling the drawing
+  orders of a BWindow objects (and its BViews).
+
++ $app_task : That the stack of an application thread. Every application gets
+  a dedicated thread on the server side. It's used to handle commands not
+  attached to a sepcific window.
+
++ heap : the app_server has its own heap, but it shouldn't grow too much as
+  most object related to your app are stored in the rw_server_area area.
+
+
+  A quick look at the net_server :
+
++ $socket[xxxx] : the stack of the thread spawned to handle a given socket
+  (the number is specified between the brackets). If this doesn't go down as
+  expected, then you may be leaking sockets...
+
+
+
+Public messaging API.
+
+  Here are the public BMessage you can use to control AreaWatch from another
+application (just send them to the Window). For each message, all fields are
+mandatory.
+
++ SET_DISPLAY ('sdpl') :
+  - Int32 "PosState" : Index of the "PositiveState" used for the display.
+                       Memories can be access through index 0 to 7, the
+                       current state is represented by index -1.
+  - Int32 "NegState" : Index of the "NegativeState" used for the display.
+                       Memories can be access through index 0 to 7. -1 means
+                       don't compare with anything.
+
++ SET_MEMORY ('smem') :
+  - Int32 "MemIndex" : Index of the memory to be used to store the current
+                       state (0 to 7).
+  - String "Name" : Label associated with that memory (that the name used
+                    in the "PositiveState" and "NegativeState" displays).
+
++ SET_WATCH ('swtc') :
+  - Bool "Active" : true to enable automatic update every 2 seconds, false to
+                    disable it.
+
++ SET_AUTO_DUMP ('sadm') :
+  - Bool "Active" : True to enable automatic dump of the complete state
+  - Bool "SaveAll" : True will save each dump under a different name.
+  - Int32 "Delay" : Delay in seconds between dumps.
+ 
+
+Bugs and comments...
+
+  ...are welcome. Good ideas for new features, or whatever. Just file a bug
+using the standard bug form, component areawatch. You can also email me
+directly at <pierre@be.com>, but submiting a bug is better (as I won't risk
+to forget about it ;-)
+
+
+
+
+
+
+
